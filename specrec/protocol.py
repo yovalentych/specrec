@@ -116,10 +116,12 @@ def evaluate(expr: str, names: dict):
             return all(vals) if isinstance(node.op, ast.And) else any(vals)
         if isinstance(node, ast.IfExp):
             return ev(node.body) if ev(node.test) else ev(node.orelse)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in FUNCS:
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and (
+                node.func.id in FUNCS or callable(names.get(node.func.id))):
             args = [ev(a) for a in node.args]
+            fn = names[node.func.id] if callable(names.get(node.func.id)) else FUNCS[node.func.id]
             try:
-                return FUNCS[node.func.id](*args)
+                return fn(*args)
             except (ValueError, TypeError, ZeroDivisionError, OverflowError):
                 return NAN
         raise FormulaError(f"У формулі «{expr}» не дозволено: {ast.dump(node)[:60]}")
@@ -396,11 +398,16 @@ class Run:
             pre = cal.get("prefix", "cal")
             try:
                 f = fit_calibration([p[0] for p in pts], [p[1] for p in pts], cal.get("model", "linear"))
-                svars.update({f"{pre}_slope": f.coef[1], f"{pre}_intercept": f.coef[0], f"{pre}_r2": f.r2,
-                              f"{pre}_n": float(f.n)})
+                ys = [p[1] for p in pts]
+                svars.update({f"{pre}_slope": f.coef[1], f"{pre}_intercept": f.coef[0], f"{pre}_quad": f.coef[2],
+                              f"{pre}_r2": f.r2, f"{pre}_n": float(f.n), f"{pre}_amax": max(ys), f"{pre}_amin": min(ys),
+                              f"{pre}_cmax": f.c_max})
+                # x from A by the fitted curve (any model): k_conc(A)
+                svars[f"{pre}_conc"] = lambda A, _f=f: _f.conc(A)[0] if isnum(A) else NAN
                 self.cal_fit = f
             except ValueError:
-                svars.update({f"{pre}_slope": NAN, f"{pre}_intercept": NAN, f"{pre}_r2": NAN, f"{pre}_n": float(len(pts))})
+                svars.update({f"{pre}_slope": NAN, f"{pre}_intercept": NAN, f"{pre}_r2": NAN, f"{pre}_n": float(len(pts)),
+                              f"{pre}_conc": lambda A: NAN, f"{pre}_amax": NAN, f"{pre}_amin": NAN})
                 self.cal_fit = None
         lists = self._lists(series, calcs)
         for var, f in self.p.get("series_calc", {}).items():

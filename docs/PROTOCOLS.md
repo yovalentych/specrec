@@ -70,7 +70,9 @@ Names you can use:
 - **In a sample formula**: `test` is the list of measured values of that sample's `test` tubes;
   `test.C` is the list of the computed variable `C`. A list must be wrapped in `mean(...)` and similar.
 - **In a series formula**: the same, over the series tubes: `mean(blank)`, `mean(control.dA)`.
-- **Calibration**: `k_slope`, `k_intercept`, `k_r2` (the prefix is set by `prefix`).
+- **Calibration**: `k_slope`, `k_intercept`, `k_quad`, `k_r2`, `k_amax` / `k_amin` (the largest and
+  smallest A of the standards) and the function `k_conc(A)`, which gives x from A by the fitted curve of
+  any model (`linear`, `origin`, `quadratic`). The prefix is set by `prefix`.
 
 A value that has not been measured yet is empty (NaN); a result appears once its data exist.
 

@@ -127,3 +127,32 @@ def test_save_and_resume(tmp_path):
     import json
     r2 = Run.from_json(json.loads(path.read_text()))
     assert len(r2.tubes) == len(run.tubes) and r2.state(r2.zero_tube()) == "done"
+
+
+@pytest.mark.parametrize("proto", ["bradford", "lowry"])
+def test_protein_quadratic_curve(proto):
+    from specrec.protocols_builtin import BRADFORD, LOWRY
+    p = BRADFORD if proto == "bradford" else LOWRY
+    a, b, q = (0.02, 0.95, -0.22) if proto == "bradford" else (0.01, 1.7, -1.1)
+    curve = lambda c: a + b * c + q * c * c
+    c_true = 0.6 if proto == "bradford" else 0.25        # mg/ml in the diluted sample
+    run = Run(p, SAMPLES)
+    finish(run, lambda t, r, wl: {"zero": 0.0, "std": curve(t.x or 0), "test": curve(c_true)}[t.type])
+    c = run.compute()
+    s = c["samples"][0]["res"]
+    assert c["series"]["k_r2"] == pytest.approx(1, abs=1e-9)
+    assert s["Cdil"] == pytest.approx(c_true, rel=1e-6)
+    assert s["C"] == pytest.approx(c_true * p["inputs"]["dilution"]["default"], rel=1e-6)
+    assert c["samples"][0]["flags"] == []
+
+
+def test_lowry_timing_two_waits():
+    from specrec.protocols_builtin import LOWRY
+    run = Run(LOWRY, SAMPLES[:1])
+    run.record(run.zero_tube(), {750: 0.0}, 0)
+    t = next(x for x in run.tubes if x.type == "test")
+    run.confirm(t, 100)                       # + reagent C
+    assert t.due == pytest.approx(700)        # 10 min
+    run.tick(700)
+    run.confirm(t, 705)                       # + Folin
+    assert t.due == pytest.approx(705 + 1800)  # 30 min from the Folin

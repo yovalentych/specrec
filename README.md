@@ -31,7 +31,7 @@ directly. The protocol was worked out by experiment and is described in
   It reads at several wavelengths at once, computes results with quality flags and
   group statistics (Welch). It imports animals from the Excel journal, saves the series
   automatically so it can be continued later, and exports to Excel. Built-in: MDA, catalase, SOD,
-  SH groups + haemolysis. You can write your own protocols in JSON (see [docs/PROTOCOLS.md](docs/PROTOCOLS.md)).
+  SH groups + haemolysis, protein by Bradford and by Lowry. You can write your own protocols in JSON (see [docs/PROTOCOLS.md](docs/PROTOCOLS.md)).
 - **Every result is saved at once** to `SpecRec_data/<date>/` (CSV): `photometry.csv`,
   `scan_*.csv`, `kinetics_*.csv`.
 - **Demo mode** with a virtual instrument (samples to choose "in the cuvette"), for practice

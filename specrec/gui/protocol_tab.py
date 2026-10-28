@@ -749,7 +749,7 @@ class ProtocolTab(QWidget):
         self.res_table.resizeColumnsToContents()
         # series
         sv = "".join(f"<tr><td><tt>{k}</tt></td><td align=right>{fmt_num(v, 4)}</td></tr>"
-                     for k, v in c["series"].items() if k not in p.get("constants", {}))
+                     for k, v in c["series"].items() if k not in p.get("constants", {}) and not callable(v))
         fl = "".join(f"<li style='color:#cf2e2e'>{f}</li>" for f in c["series_flags"]) or "<li>OK</li>"
         cal = ""
         fit = getattr(self.run, "cal_fit", None)
@@ -795,7 +795,7 @@ class ProtocolTab(QWidget):
                 tube_rows.append([t.label, t.sample or "серія", t.type, k, v])
             for k, v in c["tubes"].get(t.uid, {}).items():
                 tube_rows.append([t.label, t.sample or "серія", t.type, k, v if isnum(v) else None])
-        ser = [[k, v if isnum(v) else None] for k, v in c["series"].items()] + \
+        ser = [[k, v if isnum(v) else None] for k, v in c["series"].items() if not callable(v)] + \
               [["QC", f] for f in c["series_flags"]]
         grp = []
         for row in self.run.group_stats(c):
