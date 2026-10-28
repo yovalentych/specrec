@@ -417,7 +417,17 @@ class ProtocolTab(QWidget):
                 != QMessageBox.Yes:
             return
         p = self.protocol()
+        if abs(self.win.cuvette.path_mm - 10) > 0.05 and any("eps" in k for k in p.get("constants", {})):
+            if QMessageBox.question(
+                    self, "Кювета", f"Формули протоколу з ε розраховані на шлях 10 мм, а зараз вибрано "
+                    f"{self.win.cuvette.text()}.\nРезультати треба буде перерахувати (× 10 / шлях).\n\n"
+                    "Почати серію все одно?") != QMessageBox.Yes:
+                return
+        low = [w for w in Run(p, samples[:1]).wavelengths() if w < self.win.cuvette.cutoff]
+        if low:
+            self.win.message(f"Кювета ({self.win.cuvette.text()}) погано пропускає на {low} нм", warn=True)
         self.run = Run(p, samples)
+        self.run.notes = f"кювета: {self.win.cuvette.text()}"
         self.refs = {}
         self.session_path = storage.day_dir() / f"protocol_{p['id']}_{self.run.started:%H%M%S}.json"
         self.last_start = None
@@ -798,5 +808,5 @@ class ProtocolTab(QWidget):
             ("Серія", ["Показник", "Значення"], ser),
             ("Групи", ["Показник", "Група", "n", "Середнє", "SD", "Зміна (частка)", "p Велча"], grp),
         ], {"Протокол": p["name"], "Джерело": p.get("source", ""), "Початок": self.run.started.isoformat(timespec="minutes"),
-            "Прилад": self.win.model or ""})
+            "Прилад": self.win.model or "", "Примітки": self.run.notes or f"кювета: {self.win.cuvette.text()}"})
         self.win.message(f"Збережено: {path}")

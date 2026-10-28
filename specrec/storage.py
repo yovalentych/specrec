@@ -41,6 +41,18 @@ def fmt(v, digits=4):
 
 
 def append_row(path: Path, header: list[str], row: list):
+    """Append a row; if the file has a different header (older program version), continue
+    in a new file next to it (name_2.csv, …) so that the columns never get mixed up."""
+    path = Path(path)
+    k = 2
+    while path.exists():
+        with path.open(encoding="utf-8-sig") as f:
+            first = next(csv.reader(f), None)
+        if first == header:
+            break
+        stem = path.stem.rsplit("_", 1)[0] if path.stem.rsplit("_", 1)[-1].isdigit() else path.stem
+        path = path.with_name(f"{stem}_{k}{path.suffix}")
+        k += 1
     new = not path.exists()
     with path.open("a", newline="", encoding="utf-8-sig" if new else "utf-8") as f:
         w = csv.writer(f)

@@ -361,6 +361,7 @@ class CalibrationTab(QWidget):
         return {"format": "specrec-calibration/1", "unit": self.unit.text(), "model": self.model.currentData(),
                 "wavelength_nm": self.win.wl_spin.value(), "saved": dt.datetime.now().isoformat(timespec="seconds"),
                 "standards": [{"C": c, "A": a, "use": use} for _, c, a, use in self.rows()],
+                "cuvette": self.win.cuvette.text(),
                 "equation": self.fit.equation(self.unit.text()) if self.fit else "",
                 "r2": self.fit.r2 if self.fit else None}
 
@@ -406,7 +407,7 @@ class CalibrationTab(QWidget):
             smp.append([self.smp.item(r, 0).text(), A, c, se, dil, c * dil, self.smp.item(r, 5).text()])
         meta = {"Рівняння": self.fit.equation(unit) if self.fit else "", "R²": self.fit.r2 if self.fit else "",
                 "LOD": self.fit.lod if self.fit else "", "LOQ": self.fit.loq if self.fit else "",
-                "λ, нм": self.win.wl_spin.value(), "Одиниці": unit}
+                "λ, нм": self.win.wl_spin.value(), "Одиниці": unit, "Кювета": self.win.cuvette.text()}
         storage.write_workbook(path, [
             ("Стандарти", [f"C, {unit}"] + [f"A{i}" for i in range(1, MAX_REP + 1)] + ["Середнє", "Враховано"], std_rows),
             ("Зразки", ["Зразок", "A", f"C, {unit}", "± SE", "Розведення", f"C × розв., {unit}", "Примітка"], smp),

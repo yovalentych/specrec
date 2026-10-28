@@ -32,6 +32,7 @@ DEMO = "Демо (без приладу)"
 
 from .connection import ConnectionDialog
 from .notify import Notifier
+from .cuvette import Cuvette, CuvetteDialog
 from .common import Tile, fmt_a, fmt_t, hint, make_plot, section
 from .kinetics import KineticsTab
 from .protocol_tab import ProtocolTab
@@ -162,9 +163,9 @@ class PhotometryTab(QWidget):
         self.tile_a.set(fmt_a(r))
         self.tile_t.set(fmt_t(r))
         storage.append_row(storage.day_dir() / "photometry.csv",
-                           ["time", "position", "sample", "wavelength_nm", "A", "T_percent", "energy"],
+                           ["time", "position", "sample", "wavelength_nm", "A", "T_percent", "energy", "cuvette"],
                            [dt.datetime.now().isoformat(timespec="seconds"), pos or "", name, r.wavelength,
-                            r.A, r.T, r.energy])
+                            r.A, r.T, r.energy, self.win.cuvette.text()])
         if r.saturated:
             self.win.message("Зразок пропускає більше світла, ніж бланк, і сигнал зашкалює: "
                              "A нижче за межу вимірювання. Перевірте бланк.", warn=True)
@@ -342,7 +343,19 @@ class SpectrumTab(QWidget):
         self.color_i += 1
         return c
 
+    def check_cutoff(self) -> bool:
+        cut = self.win.cuvette.cutoff
+        lo = min(self.wavelengths())
+        if lo >= cut:
+            return True
+        return QMessageBox.question(
+            self, "Кювета", f"Скан починається з {lo} нм, а кювета ({self.win.cuvette.text()}) пропускає "
+            f"приблизно від {cut} нм. Нижче цього значення будуть ненадійні.\n\nПродовжити?\n"
+            "(Матеріал кювети: Прилад → Кювета…)") == QMessageBox.Yes
+
     def scan_blank(self, on_done=None):
+        if on_done is None and not self.check_cutoff():
+            return
         wls = self.wavelengths()
         n = self.n.value()
         self.blank = {}
@@ -437,7 +450,7 @@ class SpectrumTab(QWidget):
                                  for w, a, t, e, sat in zip(scan["wl"], scan["A"], scan["T"], scan["E"],
                                                             scan["sat"])],
                                 {"sample": name, "time": scan["time"].isoformat(timespec="seconds"),
-                                 "instrument": self.win.model or ""})
+                                 "instrument": self.win.model or "", **self.win.cuvette.meta()})
             self.win.message(f"Спектр збережено: {path.name}")
             if on_done is None and time.monotonic() - t_begin > 20:
                 a = np.asarray(scan["A"], float)
@@ -534,6 +547,7 @@ class MainWindow(QMainWindow):
     def __init__(self, autoconnect: bool = True):
         super().__init__()
         self.settings = paths.make_settings()
+        self.cuvette = Cuvette(self.settings)
         self.theme = th.THEMES.get(self.settings.value("theme", "light"), th.LIGHT)
         self.model = None
         self.connected = False
@@ -671,6 +685,9 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Прилад")
         a = QAction("Підключення…", self)
         a.triggered.connect(lambda: ConnectionDialog(self).exec())
+        m.addAction(a)
+        a = QAction("Кювета…", self)
+        a.triggered.connect(self.edit_cuvette)
         m.addAction(a)
         self.act_dark = QAction("Переміряти темновий струм (~15 с)", self)
         self.act_dark.triggered.connect(self.remeasure_dark)
@@ -952,7 +969,13 @@ class MainWindow(QMainWindow):
         wl = st["wavelength"]
         ref = st["blank"]
         b = f"бланк {ref.wavelength} нм" if ref and ref.wavelength == int(wl or 0) else "бланку немає"
-        self.state_lbl.setText(f"  прилад: {wl:.0f} нм · {b}")
+        self._state_text = f"  прилад: {wl:.0f} нм · {b}"
+        self.state_lbl.setText(f"{self._state_text} · кювета: {self.cuvette.short()}")
+
+    def edit_cuvette(self):
+        if CuvetteDialog(self, self.cuvette).exec():
+            self.state_lbl.setText(f"{getattr(self, '_state_text', '')} · кювета: {self.cuvette.short()}")
+            self.message(f"Кювета: {self.cuvette.text()}")
 
     def update_enabled(self):
         ok = self.connected and not self.busy

@@ -365,7 +365,7 @@ class KineticsTab(QWidget):
         started = dt.datetime.now()
         self.meta = {"wavelength_nm": wl, "interval_s": interval, "start": started.isoformat(timespec="seconds"),
                      "mode": "carriage" if multi else "single cuvette",
-                     "instrument": self.win.model or ""}
+                     "instrument": self.win.model or "", **self.win.cuvette.meta()}
         if not multi:
             self.meta["sample"] = positions[0][1]
         self.title.setText(f"λ = {wl} нм · {started:%H:%M:%S}")
