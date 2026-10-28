@@ -156,3 +156,12 @@ def test_lowry_timing_two_waits():
     run.tick(700)
     run.confirm(t, 705)                       # + Folin
     assert t.due == pytest.approx(705 + 1800)  # 30 min from the Folin
+
+
+def test_hemolysis_protocol():
+    from specrec.protocols_builtin import HEMOLYSIS
+    run = Run(HEMOLYSIS, SAMPLES)
+    finish(run, lambda t, r, wl: 0.0 if t.type == "zero" else {380: 0.05, 415: 0.10, 450: 0.04}[wl])
+    s = run.compute()["samples"][0]
+    assert s["res"]["Hb"] == pytest.approx(20 * (167.2 * 0.10 - 83.6 * 0.05 - 83.6 * 0.04))
+    assert any("гемоліз" in f for f in s["flags"])      # 183 mg/l -> moderate

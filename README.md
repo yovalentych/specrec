@@ -32,6 +32,17 @@ directly. The protocol was worked out by experiment and is described in
   group statistics (Welch). It imports animals from the Excel journal, saves the series
   automatically so it can be continued later, and exports to Excel. Built-in: MDA, catalase, SOD,
   SH groups + haemolysis, protein by Bradford and by Lowry. You can write your own protocols in JSON (see [docs/PROTOCOLS.md](docs/PROTOCOLS.md)).
+- **Into the lab's Excel journal**: the readings of a series are written into the input cells of a *copy*
+  of the journal (sheets SOD, catalase, MDA, SH, samples); its formulas, flags and summary keep working.
+- **Summary per animal** across all series: MDA, catalase, SOD, SH, haemolysis, protein; values per mg
+  protein; group statistics (Welch t-test and Mann–Whitney U, exact for small groups) with a dot plot.
+- **Printable plan** of a series (tubes in order, start offsets, steps, preparation checklist).
+- **Instrument check**: warm-up and drift (vs 0.002 A/h), noise, control filters (photometric
+  accuracy), wavelength accuracy with a filter of known peaks; a log of checks.
+- **Spectrum baseline**: "water vs water" (or any scan) subtracted from all spectra.
+- **Cuvette** material and path length recorded with every result, with warnings.
+- **Thermal printer** receipts (58/80 mm ESC/POS, Bluetooth serial; drawn as a picture so Cyrillic works),
+  or a PNG when there is no printer.
 - **Every result is saved at once** to `SpecRec_data/<date>/` (CSV): `photometry.csv`,
   `scan_*.csv`, `kinetics_*.csv`.
 - **Demo mode** with a virtual instrument (samples to choose "in the cuvette"), for practice

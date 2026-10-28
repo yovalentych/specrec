@@ -96,9 +96,13 @@ class PhotometryTab(QWidget):
         b_clr.clicked.connect(self.clear)
         b_exp = QPushButton("Експорт…")
         b_exp.clicked.connect(self.export)
+        b_rc = QPushButton("🖨 Чек")
+        b_rc.setToolTip("Виміри (вибрані або всі) — на термопринтер або картинкою")
+        b_rc.clicked.connect(self.receipt)
         bl.addWidget(b_del)
         bl.addWidget(b_clr)
         bl.addStretch()
+        bl.addWidget(b_rc)
         bl.addWidget(b_exp)
         right.addLayout(bl)
         right.addWidget(hint("Кожен вимір одразу дописується у файл photometry.csv у папці даних "
@@ -179,6 +183,19 @@ class PhotometryTab(QWidget):
         if len(parts) == 2 and parts[1].isdigit():
             self.name.setText(f"{parts[0]} {int(parts[1]) + 1}")
         self.name.selectAll()
+
+    def receipt(self):
+        from .printer import print_receipt
+        sel = sorted({i.row() for i in self.table.selectedIndexes()})
+        rows = [self.rows[i] for i in sel] if sel else self.rows
+        if not rows:
+            return
+        lines = []
+        for r in rows:
+            a = r[5]
+            av = f"A = {a:.3f} · T = {r[6]:.1f} %" if isinstance(a, float) and math.isfinite(a) else "A > 3"
+            lines.append(("text", f"{r[3]} · {r[4]} нм · {av}"))
+        print_receipt(self.win, "Фотометрія", lines)
 
     def delete_selected(self):
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -274,6 +291,20 @@ class SpectrumTab(QWidget):
         self.list.itemChanged.connect(self.toggle_item)
         self.list.currentRowChanged.connect(lambda _: self.show_peak())
         ctl.addWidget(self.list, 1)
+        brow = QHBoxLayout()
+        brow.addWidget(QLabel("Базова лінія:"))
+        self.base = QComboBox()
+        self.base.setToolTip("Відняти від усіх спектрів інший спектр, напр. «вода проти води» — "
+                             "прибирає різницю кювет / гнізд каретки")
+        self.base.addItem("немає", None)
+        self.base.currentIndexChanged.connect(lambda _: self.redraw())
+        brow.addWidget(self.base, 1)
+        ctl.addLayout(brow)
+        b_bl = QPushButton("Записати «вода проти води»")
+        b_bl.setToolTip("Розчинник і в бланковій, і в зразковій кюветі: цей скан стане базовою лінією")
+        b_bl.clicked.connect(self.record_baseline)
+        ctl.addWidget(b_bl)
+        self.b_bl = b_bl
         bl = QHBoxLayout()
         b_del = QPushButton("Видалити")
         b_del.clicked.connect(self.delete)
@@ -443,6 +474,12 @@ class SpectrumTab(QWidget):
             self.list.addItem(it)
             self.list.blockSignals(False)
             self.list.setCurrentRow(self.list.count() - 1)
+            self.fill_base()
+            if getattr(self, "_make_baseline", False):
+                self._make_baseline = False
+                self.base.setCurrentIndex(self.base.findData(len(self.scans) - 1))
+                self.win.message("Базову лінію записано: вона віднімається від усіх спектрів (вибір — «Базова лінія»)")
+            self.redraw()
             path = storage.day_dir() / f"scan_{scan['time']:%H%M%S}_{storage.safe_name(name)}.csv"
             storage.write_table(path, ["wavelength_nm", "A", "T_percent", "energy", "blank_energy", "gain",
                                        "saturated"],
@@ -476,12 +513,40 @@ class SpectrumTab(QWidget):
 
         self.win.run(task, done, prog, label=f"Скан: {name}…")
 
+    def baseline(self):
+        i = self.base.currentData()
+        return self.scans[i] if i is not None and 0 <= i < len(self.scans) else None
+
+    def values(self, scan, mode=None):
+        """A (minus the baseline, if one is chosen) or %T of a scan."""
+        mode = self.ymode.currentIndex() if mode is None else mode
+        base = self.baseline()
+        a = np.asarray(scan["A"], float)
+        if base is not None and base is not scan and base["wl"]:
+            a = a - np.interp(scan["wl"], base["wl"], np.asarray(base["A"], float))
+        return a if mode == 0 else 100 * 10 ** (-a)
+
     def set_curve(self, scan):
-        y = scan["A"] if self.ymode.currentIndex() == 0 else scan["T"]
-        scan["item"].setData(scan["wl"], y)
+        scan["item"].setData(scan["wl"], self.values(scan))
+
+    def fill_base(self):
+        cur = self.base.currentData()
+        self.base.blockSignals(True)
+        self.base.clear()
+        self.base.addItem("немає", None)
+        for i, s in enumerate(self.scans):
+            self.base.addItem(s["name"], i)
+        j = self.base.findData(cur)
+        self.base.setCurrentIndex(max(j, 0))
+        self.base.blockSignals(False)
+
+    def record_baseline(self):
+        self._make_baseline = True
+        self.scan_sample("Базова лінія (вода/вода)")
 
     def redraw(self):
-        self.plot.setLabel("left", "A" if self.ymode.currentIndex() == 0 else "T, %")
+        base = self.baseline()
+        self.plot.setLabel("left", ("A" + (" − базова лінія" if base else "")) if self.ymode.currentIndex() == 0 else "T, %")
         for s in self.scans + ([self.live] if self.live else []):
             self.set_curve(s)
         self.show_peak()
@@ -496,7 +561,7 @@ class SpectrumTab(QWidget):
             self.peak_lbl.setText("")
             return
         s = self.scans[i]
-        a = np.asarray(s["A"], float)
+        a = self.values(s, 0)
         if np.all(np.isnan(a)):
             return
         k = int(np.nanargmax(a))
@@ -514,28 +579,36 @@ class SpectrumTab(QWidget):
             if not s["item"].isVisible() or not s["wl"]:
                 continue
             k = int(np.argmin(np.abs(np.asarray(s["wl"]) - x)))
-            v = s["A"][k] if mode == 0 else s["T"][k]
+            v = self.values(s)[k]
             parts.append(f"{s['name']}: {v:.3f}" if mode == 0 else f"{s['name']}: {v:.1f} %")
         self.cursor_lbl.setText(f"λ = {x:.0f} нм   " + "   ".join(parts))
 
     def delete(self):
         i = self.list.currentRow()
         if 0 <= i < len(self.scans):
+            if self.base.currentData() == i:
+                self.base.setCurrentIndex(0)
+            elif self.base.currentData() is not None and self.base.currentData() > i:
+                self.base.setCurrentIndex(self.base.currentIndex() - 1)
             self.plot.removeItem(self.scans[i]["item"])
             del self.scans[i]
             self.list.takeItem(i)
+            self.fill_base()
+            self.redraw()
 
     def export(self):
         vis = [s for s in self.scans if s["item"].isVisible()]
         if not vis:
             return
         wls = sorted({w for s in vis for w in s["wl"]})
-        header = ["λ, нм"] + [f"{s['name']} A" for s in vis]
+        base = self.baseline()
+        suffix = " A − базова лінія" if base else " A"
+        header = ["λ, нм"] + [f"{s['name']}{suffix if s is not base else ' A'}" for s in vis]
         rows = []
         for w in wls:
             row = [w]
             for s in vis:
-                d = dict(zip(s["wl"], s["A"]))
+                d = dict(zip(s["wl"], self.values(s, 0)))
                 v = d.get(w)
                 row.append(None if v is None or (isinstance(v, float) and math.isnan(v)) else v)
             rows.append(row)
@@ -579,6 +652,12 @@ class MainWindow(QMainWindow):
         self.proto = ProtocolTab(self)
         self.tabs.addTab(self.proto, "Протокол")
         self.tabs.setDocumentMode(True)
+        # Space / Enter are shortcuts there ("measure", "position ready"): other buttons must not
+        # take the focus, or a key press would click them instead
+        for tab, keep in ((self.photo, self.photo.b_meas), (self.kin, self.kin.b_ready)):
+            for btn in tab.findChildren(QPushButton):
+                if btn is not keep:
+                    btn.setFocusPolicy(Qt.NoFocus)
         self.setCentralWidget(self.tabs)
         self.build_menu()
         self.statusBar().showMessage(f"Дані зберігаються в {paths.data_root()}")
@@ -670,6 +749,9 @@ class MainWindow(QMainWindow):
     def build_menu(self):
         mb = self.menuBar()
         m = mb.addMenu("&Файл")
+        a = QAction("Зведення по тваринах…", self)
+        a.triggered.connect(lambda: self.proto.summary())
+        m.addAction(a)
         a = QAction("Відкрити кінетику…", self)
         a.triggered.connect(lambda: (self.tabs.setCurrentWidget(self.kin), self.kin.open_file()))
         m.addAction(a)
@@ -685,6 +767,12 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Прилад")
         a = QAction("Підключення…", self)
         a.triggered.connect(lambda: ConnectionDialog(self).exec())
+        m.addAction(a)
+        a = QAction("Термопринтер…", self)
+        a.triggered.connect(self.printer_settings)
+        m.addAction(a)
+        a = QAction("Перевірка приладу…", self)
+        a.triggered.connect(self.instrument_check)
         m.addAction(a)
         a = QAction("Кювета…", self)
         a.triggered.connect(self.edit_cuvette)
@@ -971,6 +1059,14 @@ class MainWindow(QMainWindow):
         b = f"бланк {ref.wavelength} нм" if ref and ref.wavelength == int(wl or 0) else "бланку немає"
         self._state_text = f"  прилад: {wl:.0f} нм · {b}"
         self.state_lbl.setText(f"{self._state_text} · кювета: {self.cuvette.short()}")
+
+    def instrument_check(self):
+        from .instrument_check import InstrumentCheckDialog
+        InstrumentCheckDialog(self).exec()
+
+    def printer_settings(self):
+        from .printer import PrinterDialog
+        PrinterDialog(self).exec()
 
     def edit_cuvette(self):
         if CuvetteDialog(self, self.cuvette).exec():

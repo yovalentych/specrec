@@ -475,6 +475,8 @@ class Run:
                     continue
                 a, b = row["groups"][ref], row["groups"][g]
                 t, df, p = welch(a["vals"], b["vals"])
+                from .summary import mann_whitney
+                b["p_mw"] = mann_whitney(a["vals"], b["vals"])[1]
                 b["change"] = (b["mean"] - a["mean"]) / a["mean"] if a["mean"] else NAN
                 b["t"], b["df"], b["p"] = t, df, p
             row["ref"] = ref

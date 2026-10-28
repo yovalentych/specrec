@@ -23,6 +23,8 @@ from ..protocol import (NAN, Run, copy_to_user, evaluate, import_samples, isnum,
                         protocols_dir)
 from ..v1200 import InstrumentError
 from .common import hint, section
+from .groupplot import GroupPlot
+from .printer import print_receipt
 
 
 def fmt_mmss(sec: float) -> str:
@@ -116,6 +118,10 @@ class ProtocolTab(QWidget):
         b.setToolTip("Перечитати протоколи з папки (після редагування)")
         b.setFixedWidth(34)
         b.clicked.connect(self.reload)
+        top.addWidget(b)
+        b = QPushButton("Лист-план…")
+        b.setToolTip("Сторінка для друку: пробірки по порядку, зсув запуску, кроки, підготовка")
+        b.clicked.connect(self.plan)
         top.addWidget(b)
         top.addStretch()
         self.session_lbl = hint("")
@@ -223,16 +229,40 @@ class ProtocolTab(QWidget):
         self.res_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.series_view = QTextBrowser()
         self.groups_view = QTextBrowser()
+        gw = QWidget()
+        gl = QVBoxLayout(gw)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.addWidget(self.groups_view, 1)
+        self.group_col = QComboBox()
+        self.group_col.currentIndexChanged.connect(self.draw_groups)
+        gl.addWidget(self.group_col)
+        self.group_plot = GroupPlot(win.theme)
+        self.group_plot.setMinimumHeight(200)
+        gl.addWidget(self.group_plot, 1)
         self.res_tabs.addTab(self.res_table, "Результати")
         self.res_tabs.addTab(self.series_view, "Серія і контроль якості")
-        self.res_tabs.addTab(self.groups_view, "Групи")
+        self.res_tabs.addTab(gw, "Групи")
         rw = QWidget()
         rl = QVBoxLayout(rw)
         rl.setContentsMargins(0, 0, 0, 0)
         rl.addWidget(self.res_tabs, 1)
+        br = QHBoxLayout()
         b = QPushButton("Експорт у Excel…")
         b.clicked.connect(self.export)
-        rl.addWidget(b)
+        br.addWidget(b)
+        b = QPushButton("У журнал…")
+        b.setToolTip("Вписати виміряні значення в копію вашого Excel-журналу (жовті клітинки)")
+        b.clicked.connect(self.to_journal)
+        br.addWidget(b)
+        b = QPushButton("Зведення…")
+        b.setToolTip("Усі аналізи по тваринах в одній таблиці, на мг білка, статистика груп")
+        b.clicked.connect(self.summary)
+        br.addWidget(b)
+        b = QPushButton("🖨 Чек")
+        b.setToolTip("Результати серії на термопринтер (або картинкою)")
+        b.clicked.connect(self.receipt)
+        br.addWidget(b)
+        rl.addLayout(br)
 
         split = QSplitter(Qt.Horizontal)
         split.addWidget(cw)
@@ -245,6 +275,11 @@ class ProtocolTab(QWidget):
         lay.addLayout(top)
         lay.addLayout(body, 1)
 
+        # Space / Enter always mean "do / measure": no other button of this tab takes the focus,
+        # otherwise Space would press e.g. «Чек» after the action button becomes disabled
+        for btn in self.findChildren(QPushButton):
+            if btn is not self.b_act:
+                btn.setFocusPolicy(Qt.NoFocus)
         self.clock = QTimer(self)
         self.clock.timeout.connect(self.tick)
         self.clock.start(1000)
@@ -506,6 +541,8 @@ class ProtocolTab(QWidget):
     def refresh_tubes(self):
         if not self.run:
             return
+        if self.tubes.rowCount() != len(self.run.tubes):
+            self.fill_tubes()
         now = time.time()
         t = self.win.theme
         for r, tube in enumerate(self.run.tubes):
@@ -763,15 +800,123 @@ class ProtocolTab(QWidget):
         html = ""
         for row in rows:
             html += f"<h4>{row['label']}, {row['unit']}</h4><table cellpadding=3><tr><th>Група</th><th>n</th>" \
-                    "<th>Середнє</th><th>SD</th><th>Зміна</th><th>p (Велч)</th></tr>"
+                    "<th>Середнє</th><th>SD</th><th>Зміна</th><th>p Велча</th><th>p Манна–Вітні</th></tr>"
             for g, st in row["groups"].items():
                 ch = f"{st['change'] * 100:+.0f} %" if isnum(st.get("change")) else ""
                 pv = f"{st['p']:.3f}" if isnum(st.get("p")) else ""
+                pm = f"{st['p_mw']:.3f}" if isnum(st.get("p_mw")) else ""
                 html += (f"<tr><td>{g}{' (порівняння)' if g == row['ref'] else ''}</td><td>{st['n']}</td>"
-                         f"<td>{fmt_num(st['mean'], 3)}</td><td>{fmt_num(st['sd'], 3)}</td><td>{ch}</td><td>{pv}</td></tr>")
+                         f"<td>{fmt_num(st['mean'], 3)}</td><td>{fmt_num(st['sd'], 3)}</td><td>{ch}</td>"
+                         f"<td>{pv}</td><td>{pm}</td></tr>")
             html += "</table>"
-        self.groups_view.setHtml(html + "<p><i>t-тест Велча орієнтовний при малих n; дублікати усереднено, "
+        self.groups_view.setHtml(html + "<p><i>При малих n обидва тести орієнтовні; дублікати усереднено, "
                                         "n — кількість тварин.</i></p>" if rows else "")
+        self._group_rows = rows
+        cur = self.group_col.currentText()
+        self.group_col.blockSignals(True)
+        self.group_col.clear()
+        self.group_col.addItems([f"{r['label']}, {r['unit']}" for r in rows])
+        self.group_col.setCurrentIndex(max(0, self.group_col.findText(cur)))
+        self.group_col.blockSignals(False)
+        self.draw_groups()
+
+    def draw_groups(self):
+        rows = getattr(self, "_group_rows", [])
+        i = self.group_col.currentIndex()
+        if not rows or i < 0:
+            self.group_plot.clear()
+            return
+        r = rows[i]
+        self.group_plot.show_groups({g: st["vals"] for g, st in r["groups"].items()}, r["label"], r["unit"])
+
+    # ---------------------------------------------------------------- journal, summary, plan, receipt
+    def to_journal(self):
+        if not self.run:
+            return
+        if not self.run.p.get("journal"):
+            QMessageBox.information(self, "Журнал", "Для цього протоколу немає розмітки журналу "
+                                    "(поле \"journal\" у протоколі, див. docs/PROTOCOLS.md).")
+            return
+        src, _ = QFileDialog.getOpenFileName(self, "Ваш журнал Excel", self.win.settings.value(
+            "journal/path", str(Path.home() / "Downloads")), "Excel (*.xlsx)")
+        if not src:
+            return
+        self.win.settings.setValue("journal/path", src)
+        default = str(Path(src).with_name(Path(src).stem + "_SpecRec.xlsx"))
+        out, _ = QFileDialog.getSaveFileName(self, "Зберегти заповнений журнал як", default, "Excel (*.xlsx)")
+        if not out:
+            return
+        if Path(out).resolve() == Path(src).resolve() and QMessageBox.question(
+                self, "Журнал", "Записати прямо в оригінал? Краще зберегти копію.") != QMessageBox.Yes:
+            return
+        from ..journal import write_runs
+        try:
+            report = write_runs(src, out, [self.run])
+        except Exception as e:
+            QMessageBox.warning(self, "Журнал", f"Не вдалося: {e}")
+            return
+        QMessageBox.information(self, "Журнал", "\n".join(report) + f"\n\nЗбережено: {out}\n"
+                                "Формули журналу перерахуються, коли відкриєте файл в Excel.")
+
+    def summary(self):
+        from .summary_dialog import SummaryDialog
+        SummaryDialog(self.win).exec()
+
+    def receipt(self):
+        if not self.run:
+            return
+        c = self.run.compute()
+        p = self.run.p
+        lines = [("small", f"серія {self.run.started:%d.%m %H:%M}")]
+        for f in c["series_flags"]:
+            lines.append(("small", f"⚠ {f}"))
+        for s in c["samples"]:
+            if not s["measured"]:
+                continue
+            lines.append(("gap", ""))
+            lines.append(("bold", f"{s['code']}  {s['group']}"))
+            for r in p.get("results", []):
+                v = s["res"].get(r["var"])
+                lines.append(("text", f"{r['label']}: {fmt_num(v, r.get('digits', 3), r.get('percent'))} {r.get('unit', '')}"))
+            for f in s["flags"]:
+                lines.append(("small", f"⚠ {f}"))
+        print_receipt(self.win, p["name"], lines)
+
+    def plan(self):
+        p = self.run.p if self.run else self.protocol()
+        run = self.run or Run(p, self.sample_rows() or [{"code": "зразок 1", "group": ""}])
+        stg = p.get("stagger") or 0
+        rows, k = [], 0
+        for t in run.tubes:
+            steps = run.steps(t)
+            starts = bool(steps) and "do" in steps[0] and any("wait" in st for st in steps)
+            off = ""
+            if starts and stg:
+                off = f"+{k * stg // 60}:{k * stg % 60:02d}"
+                k += 1
+            what = " → ".join(st.get("do") or (f"<b>вимір {st['read']}</b> {'/'.join(map(str, st['wl']))} нм"
+                                              if "read" in st else f"⏳ {fmt_mmss(st['wait'])} {st.get('text', '')}")
+                              for st in steps)
+            rows.append(f"<tr><td>☐</td><td>{t.label}</td><td>{t.sample or 'серія'}</td><td>{off}</td><td>{what}</td>"
+                        f"<td style='width:18%'></td></tr>")
+        prep = "".join(f"<li>☐ {x}</li>" for x in p.get("prep", []))
+        timers = ", ".join(f"{t['label']}" for t in p.get("timers", []))
+        html = f"""<!doctype html><meta charset="utf-8"><title>{p['name']}</title>
+<style>body{{font-family:-apple-system,Arial,sans-serif;font-size:12px;margin:18mm}}
+table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #999;padding:4px;vertical-align:top}}
+th{{background:#eee}}h1{{font-size:18px;margin:0}}@media print{{body{{margin:10mm}}}}</style>
+<h1>{p['name']}</h1><p>{p.get('source', '')}<br>Дата: ____________ · Температура: ______ °C ·
+Кювета: {self.win.cuvette.text()} · Виконавець: ______________</p>
+<p>{p.get('description', '')}</p>
+<h3>Підготовка</h3><ul style="list-style:none;padding-left:0">{prep}</ul>
+{f'<p><b>Таймери:</b> {timers}</p>' if timers else ''}
+{f'<p><b>Зсув запуску пробірок:</b> {stg} с (стовпець «Старт»)</p>' if stg else ''}
+<h3>Пробірки</h3><table><tr><th></th><th>Пробірка</th><th>Зразок</th><th>Старт</th><th>Кроки</th><th>Примітки</th></tr>
+{''.join(rows)}</table><p style="margin-top:16px">Примітки: ____________________________________________</p>"""
+        path = storage.day_dir() / f"plan_{p['id']}_{dt.datetime.now():%H%M%S}.html"
+        path.write_text(html, encoding="utf-8")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        self.win.message(f"Лист-план відкрито в браузері (друк: ⌘P / Ctrl+P): {path.name}")
 
     def export(self):
         if not self.run:

@@ -5,6 +5,7 @@ Built-in protocols (in `specrec/protocols_builtin.py`):
 - **Каталаза**: H₂O₂ calibration → k; blanks, test tubes and sample backgrounds; 10 min per tube with a 30 s stagger.
 - **СОД**: controls and test tubes; A₀ → 10 min → A₁₀; T, conventional units (у.о.), × 30.
 - **SH-групи (Ellman)** with haemolysis (Harboe): Aфон at 412/380/415/450, DTNB, 15 min, Aзр.
+- **Гемоліз**: plasma 1:20 in buffer A, A380/A415/A450 → free Hb (for days without SH).
 - **Білок за Бредфордом**: 595 nm, 20 µl + 1 ml of reagent, 5 min; BSA 0–1.5 mg/ml, quadratic curve.
 - **Білок за Лоурі**: 750 nm, reagent C → 10 min → Folin → 30 min; BSA 0–0.5 mg/ml, quadratic curve.
 - Two templates: **кінцева точка** (an endpoint with a factor) and **калібрувальна крива + зразки** (a calibration curve with samples).
@@ -81,3 +82,10 @@ A value that has not been measured yet is empty (NaN); a result appears once its
 ### Quality checks
 `qc`: `scope` is `series` or `sample`, `expr` is a formula, and `min` / `max` are the allowed limits.
 In `msg`, `{v}` is the value and `{pct}` is the value × 100.
+
+### Journal (optional)
+`journal` tells where the readings go in the lab's Excel journal (button **У журнал…**).
+- `sheet`: the sheet.
+- `first_row`: the row of the first animal of «Зразки».
+- `sample_cells` / `series_cells` / `samples_sheet_cells`: a column (or a cell) → a value.
+  A value is `"<type>#<n>.<read or variable>"`, for example `"test#2.A10"`, or `"@dilution"` for a sample input.

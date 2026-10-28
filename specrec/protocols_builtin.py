@@ -46,6 +46,8 @@ MDA = {
         {"scope": "sample", "expr": "CV", "max": 0.15, "msg": "CV {pct:.0f} % > 15 % — повторити"},
     ],
     "demo": {"test": {"E_532": [0.08, 0.16], "E_600": [0.005, 0.015]}},
+    "journal": {"sheet": "МДА", "first_row": 8,
+                "sample_cells": {"D": "test#1.E_532", "E": "test#1.E_600", "F": "test#2.E_532", "G": "test#2.E_600"}},
 }
 
 CATALASE = {
@@ -102,6 +104,10 @@ CATALASE = {
     ],
     "demo": {"std": {"E": "0.012 + 0.0415 * x"}, "blank": {"E": [0.70, 0.74]},
              "test": {"E": [0.40, 0.55]}, "bg": {"E": [0.03, 0.06]}},
+    "journal": {"sheet": "Каталаза", "first_row": 20,
+                "series_cells": {"C8": "std#1.E", "C9": "std#2.E", "C10": "std#3.E", "C11": "std#4.E",
+                                 "C12": "std#5.E", "G8": "blank#1.E", "G9": "blank#2.E"},
+                "sample_cells": {"D": "@dilution", "E": "test#1.E", "F": "test#2.E", "G": "bg#1.E"}},
 }
 
 SOD = {
@@ -154,6 +160,11 @@ SOD = {
     ],
     "demo": {"control": {"A0": [0.08, 0.10], "A10": [0.50, 0.56]},
              "test": {"A0": [0.08, 0.10], "A10": [0.25, 0.40]}},
+    "journal": {"sheet": "СОД", "first_row": 17,
+                "series_cells": {"B8": "control#1.A0", "C8": "control#1.A10", "B9": "control#2.A0",
+                                 "C9": "control#2.A10", "B10": "control#3.A0", "C10": "control#3.A10"},
+                "sample_cells": {"D": "@dilution", "E": "test#1.A0", "F": "test#1.A10",
+                                 "G": "test#2.A0", "H": "test#2.A10"}},
 }
 
 SH = {
@@ -210,6 +221,10 @@ SH = {
              "gsh": {"fon": [0.0, 0.01], "zr": [0.37, 0.40]},
              "test": {"fon_412": [0.05, 0.09], "fon_380": [0.05, 0.08], "fon_415": [0.06, 0.10],
                       "fon_450": [0.03, 0.05], "zr": [0.30, 0.40]}},
+    "journal": {"sheet": "SH", "first_row": 12,
+                "series_cells": {"C7": "reag#1.A", "C8": "gsh#1.dA"},
+                "sample_cells": {"D": "test#1.fon_412", "E": "test#1.zr", "F": "test#2.fon_412", "G": "test#2.zr"},
+                "samples_sheet_cells": {"J": "test#1.fon_380", "K": "test#1.fon_415", "L": "test#1.fon_450"}},
 }
 
 ENDPOINT = {
@@ -357,4 +372,34 @@ LOWRY = {
     "demo": {"std": {"A": "0.01 + 1.7 * x - 1.1 * x * x"}, "test": {"A": [0.25, 0.42]}},
 }
 
-BUILTIN = [MDA, CATALASE, SOD, SH, BRADFORD, LOWRY, ENDPOINT, CALIB]
+HEMOLYSIS = {
+    "id": "hemolysis", "name": "Гемоліз (вільний Hb, Harboe)", "version": 1,
+    "source": "Harboe 1959 з поправкою Аллена; та сама пробірка, що й фон SH (плазма 1:20 у буфері А)",
+    "description": ("0,95 мл буфера А + 0,05 мл плазми, перемішати → A380, A415, A450 проти буфера А. "
+                    "Вільний Hb, мг/л = 20 × (167,2·A415 − 83,6·A380 − 83,6·A450). "
+                    "Орієнтовно: < 100 — прийнятно, 100–500 — помірний, > 500 — виражений гемоліз. "
+                    "Найбільше від гемолізу страждають каталаза і СОД."),
+    "prep": ["Буфер А (або той самий буфер, що й для SH)", "Кювета зі звуженням (1 мл)",
+             "Рожеву плазму позначити ще під час забору"],
+    "timers": [],
+    "constants": {"dil": 20},
+    "tubes": {
+        "zero": {"label": "Буфер А — нуль приладу", "per": "series", "count": 1, "zero": True,
+                 "steps": [{"read": "A", "wl": [380, 415, 450]}]},
+        "test": {"label": "Плазма 1:20", "per": "sample", "count": 1,
+                 "steps": [{"do": "0,95 мл буфера А + 0,05 мл плазми, перемішати"},
+                           {"read": "A", "wl": [380, 415, 450]}]},
+    },
+    "tube_calc": {"test": {"Hb": "max(0, dil * (167.2 * A_415 - 83.6 * A_380 - 83.6 * A_450))"}},
+    "sample_calc": {"Hb": "first(test.Hb)", "A415": "first(test.A_415)"},
+    "inputs": {},
+    "results": [{"var": "Hb", "label": "Вільний Hb", "unit": "мг/л", "digits": 0},
+                {"var": "A415", "label": "A415", "unit": "", "digits": 3}],
+    "qc": [{"scope": "sample", "expr": "Hb", "max": 500, "msg": "виражений гемоліз (Hb {v:.0f} мг/л)"},
+           {"scope": "sample", "expr": "Hb", "max": 100, "msg": "помірний гемоліз (Hb {v:.0f} мг/л)"}],
+    "journal": {"sheet": "Зразки", "first_row": 5,
+                "sample_cells": {"J": "test#1.A_380", "K": "test#1.A_415", "L": "test#1.A_450"}},
+    "demo": {"test": {"A_380": [0.05, 0.09], "A_415": [0.06, 0.14], "A_450": [0.03, 0.05]}},
+}
+
+BUILTIN = [MDA, CATALASE, SOD, SH, HEMOLYSIS, BRADFORD, LOWRY, ENDPOINT, CALIB]

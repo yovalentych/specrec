@@ -108,6 +108,8 @@ def run_script(win, name: str):
                     tab.select(nxt)
             QTimer.singleShot(120, press)
         QTimer.singleShot(500, press)
+    elif name == "baseline":
+        run_baseline_demo(win)
     elif name == "calibration":
         run_calibration_demo(win)
     elif name == "kinetics":
@@ -133,3 +135,14 @@ def run_calibration_demo(win):
     for name, a in (("Зразок 1", 0.31), ("Зразок 2", 0.62), ("Зразок 3", 1.20)):
         tab.s_name.setText(name)
         tab.add_sample(name, a, 2.0)
+
+
+def run_baseline_demo(win):
+    """Spectrum with a baseline: blank scan, 'water vs water' with a cuvette offset, then a sample."""
+    from .demo_script import _chain, _sample
+    sp = win.spec
+    win.tabs.setCurrentWidget(sp)
+    sp.step.setCurrentIndex(3)
+    _chain(win, [lambda: _sample(win, "blank"), sp.scan_blank,
+                 lambda: _sample(win, "bright"), sp.record_baseline,          # A = -0.06: a cuvette offset
+                 lambda: _sample(win, "red"), sp.scan_sample])

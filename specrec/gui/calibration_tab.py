@@ -144,6 +144,9 @@ class CalibrationTab(QWidget):
             {i.row() for i in self.smp.selectedIndexes()}, reverse=True)])
         row.addWidget(b)
         row.addStretch()
+        b = QPushButton("🖨 Чек")
+        b.clicked.connect(self.receipt)
+        row.addWidget(b)
         b = QPushButton("Експорт у Excel…")
         b.clicked.connect(self.export)
         row.addWidget(b)
@@ -355,6 +358,21 @@ class CalibrationTab(QWidget):
                 if j == 5:
                     it.setForeground(QColor(self.win.theme.danger if v else self.win.theme.text))
         self.draw()
+
+    def receipt(self):
+        from .printer import print_receipt
+        lines = []
+        if self.fit:
+            f = self.fit
+            lines += [("text", f.equation(self.unit.text())), ("small", f"R² = {f.r2:.4f}, n = {f.n}")]
+            if f.lod is not None:
+                lines.append(("small", f"LOD {f.lod:.3g}, LOQ {f.loq:.3g} {self.unit.text()}"))
+        for r in range(self.smp.rowCount()):
+            lines.append(("text", f"{self.smp.item(r, 0).text()}: A {self.smp.item(r, 1).text()} → "
+                                  f"{self.smp.item(r, 4).text()} {self.unit.text()}"))
+            if self.smp.item(r, 5).text():
+                lines.append(("small", f"⚠ {self.smp.item(r, 5).text()}"))
+        print_receipt(self.win, f"Калібрування, {self.win.wl_spin.value()} нм", lines)
 
     # ----- save / load / export
     def state(self) -> dict:
