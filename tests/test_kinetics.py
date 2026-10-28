@@ -33,6 +33,6 @@ def test_load_old_two_column(tmp_path):
 
 def test_load_rejects_other_csv(tmp_path):
     p = tmp_path / "x.csv"
-    p.write_text("a,b\n1,2\n")
+    p.write_text("a,b\n1,2\n", encoding="utf-8")
     with pytest.raises(ValueError):
         load_kinetics(p)

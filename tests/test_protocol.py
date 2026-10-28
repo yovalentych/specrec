@@ -125,7 +125,7 @@ def test_save_and_resume(tmp_path):
     path = tmp_path / "run.json"
     run.save(path)
     import json
-    r2 = Run.from_json(json.loads(path.read_text()))
+    r2 = Run.from_json(json.loads(path.read_text(encoding="utf-8")))
     assert len(r2.tubes) == len(run.tubes) and r2.state(r2.zero_tube()) == "done"
 
 
