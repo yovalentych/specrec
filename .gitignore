@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+build/
+dist/
+SpecRec_data/
+.pytest_cache/
+.DS_Store
