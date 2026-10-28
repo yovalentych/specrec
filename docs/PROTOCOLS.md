@@ -5,6 +5,8 @@ Built-in protocols (in `specrec/protocols_builtin.py`):
 - **Каталаза**: H₂O₂ calibration → k; blanks, test tubes and sample backgrounds; 10 min per tube with a 30 s stagger.
 - **СОД**: controls and test tubes; A₀ → 10 min → A₁₀; T, conventional units (у.о.), × 30.
 - **SH-групи (Ellman)** with haemolysis (Harboe): Aфон at 412/380/415/450, DTNB, 15 min, Aзр.
+- **Білок за Бредфордом**: 595 nm, 20 µl + 1 ml of reagent, 5 min; BSA 0–1.5 mg/ml, quadratic curve.
+- **Білок за Лоурі**: 750 nm, reagent C → 10 min → Folin → 30 min; BSA 0–0.5 mg/ml, quadratic curve.
 - Two templates: **кінцева точка** (an endpoint with a factor) and **калібрувальна крива + зразки** (a calibration curve with samples).
 
 **Протокол → Змінити (моя копія)…** saves a copy as JSON in `SpecRec_data/protocols/` and
