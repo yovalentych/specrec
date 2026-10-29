@@ -55,7 +55,7 @@ def _install_crash_log():
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="specrec")
     ap.add_argument("--demo", action="store_true")
-    ap.add_argument("--theme", choices=["light", "dark"])
+    ap.add_argument("--theme", choices=["device", "light", "dark"])
     ap.add_argument("--screenshot")
     ap.add_argument("--after", type=float, default=5.0)
     ap.add_argument("--script")

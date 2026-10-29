@@ -47,7 +47,17 @@ DARK = Theme(
     channels=("#5b9dff", "#ff6b6b", "#4fd18b", "#f2b14a", "#a78bfa", "#38c6e0"),
 )
 
-THEMES = {"light": LIGHT, "dark": DARK}
+# the look of the Mapada V-1200 itself: a cream body, a slate-blue control panel, white keys
+DEVICE = Theme(
+    name="device", bg="#e7e4dc", surface="#f1efe9", surface2="#faf9f6", border="#cdc8bc",
+    text="#26313f", muted="#6b7684", accent="#4f6b8f", accent_text="#ffffff",
+    danger="#c0392b", warn="#b8741a", success="#2f8a4f",
+    plot_bg="#fdfcf9", plot_fg="#3c4a5c", grid_alpha=0.16,
+    channels=("#3d5f8f", "#c0392b", "#2f8a4f", "#b8741a", "#7442c8", "#0a8aa3"),
+)
+
+THEMES = {"device": DEVICE, "light": LIGHT, "dark": DARK}
+THEME_NAMES = {"device": "Прилад V-1200", "light": "Світла", "dark": "Темна"}
 
 
 def apply_palette(app, t: Theme) -> None:
@@ -160,4 +170,22 @@ def stylesheet(t: Theme) -> str:
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
     QScrollBar:horizontal {{ height: 9px; background: transparent; }}
     QScrollBar::handle:horizontal {{ background: {t.border}; border-radius: 4px; min-width: 30px; }}
+
+    /* front panel of the instrument (gui/device_panel.py) */
+    #deviceBody {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f6f4ee, stop:1 #e4e0d6);
+                   border: 1px solid #cbc5b7; border-radius: 10px; }}
+    #deviceName {{ color: #3e4f66; font-size: 26px; font-weight: 300; letter-spacing: 1px; }}
+    #deviceSub {{ color: #3e4f66; font-size: 12px; }}
+    #devicePlate {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8fa3bd, stop:1 #7389a6);
+                    border: 1px solid #5f7491; border-radius: 6px; }}
+    QPushButton#devkey {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #e6e6e2);
+                          color: #2b3442; border: 1px solid #9aa6b6; border-bottom: 3px solid #8b97a8;
+                          border-radius: 5px; font-weight: 700; font-size: 11px; min-width: 54px; min-height: 30px;
+                          padding: 2px 4px; }}
+    QPushButton#devkey:pressed {{ background: #dcdcd6; border-bottom-width: 1px; margin-top: 2px; }}
+    QPushButton#devkey:disabled {{ color: #9aa3ae; }}
+    QPushButton#devkey:hover {{ border-color: #4f6b8f; }}
+    #devhint {{ color: #e9eef6; font-size: 10px; }}
+    #deviceLid {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f3f1eb, stop:1 #e2ded3);
+                  border: 1px solid #c9c3b5; border-top: 2px solid #d8d3c6; border-radius: 4px; }}
     """

@@ -32,6 +32,7 @@ DEMO = "Демо (без приладу)"
 
 from .connection import ConnectionDialog
 from .notify import Notifier
+from .device_panel import DevicePanel
 from .cuvette import Cuvette, CuvetteDialog
 from .common import Tile, fmt_a, fmt_t, hint, make_plot, section
 from .kinetics import KineticsTab
@@ -69,7 +70,7 @@ class PhotometryTab(QWidget):
         self.b_series.setToolTip("Бланк у позиції 1, зразки в позиціях 2–4: програма підкаже, коли пересунути каретку")
         self.b_series.clicked.connect(self.series)
         left.addWidget(self.b_series)
-        left.addWidget(hint("1. Поставте кювету з бланком (розчинником) і натисніть «Бланк» угорі.\n"
+        left.addWidget(hint("1. Поставте кювету з бланком (розчинником) і натисніть ZERO на панелі приладу.\n"
                             "2. Поставте зразок і натисніть «Виміряти» (або Enter).\n"
                             "Бланк дійсний для своєї довжини хвилі: після її зміни зробіть новий."))
         self.tile_a = Tile("Оптична густина", "A")
@@ -142,7 +143,7 @@ class PhotometryTab(QWidget):
             ref = dev.blank_ref
             if ref is None or ref.wavelength != wl:
                 raise InstrumentError(f"Немає бланку на {wl} нм. Поставте кювету з бланком "
-                                      f"і натисніть «Бланк».")
+                                      f"і натисніть ZERO на панелі приладу.")
             return dev.read(ref, n)
 
         def done(r):
@@ -165,6 +166,7 @@ class PhotometryTab(QWidget):
             self.table.setItem(i, j, it)
         self.table.scrollToBottom()
         self.tile_a.set(fmt_a(r))
+        self.win.panel.set_reading(r.A, r.T, r.saturated)
         self.tile_t.set(fmt_t(r))
         storage.append_row(storage.day_dir() / "photometry.csv",
                            ["time", "position", "sample", "wavelength_nm", "A", "T_percent", "energy", "cuvette"],
@@ -621,7 +623,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = paths.make_settings()
         self.cuvette = Cuvette(self.settings)
-        self.theme = th.THEMES.get(self.settings.value("theme", "light"), th.LIGHT)
+        self.theme = th.THEMES.get(self.settings.value("theme", "device"), th.DEVICE)
         self.model = None
         self.connected = False
         self.busy = False
@@ -658,7 +660,18 @@ class MainWindow(QMainWindow):
             for btn in tab.findChildren(QPushButton):
                 if btn is not keep:
                     btn.setFocusPolicy(Qt.NoFocus)
-        self.setCentralWidget(self.tabs)
+        self.panel = DevicePanel(self)
+        central = QWidget()
+        cl = QVBoxLayout(central)
+        cl.setContentsMargins(8, 8, 8, 0)
+        cl.setSpacing(6)
+        cl.addWidget(self.panel)
+        cl.addWidget(self.tabs, 1)
+        self.setCentralWidget(central)
+        self.live_timer = QTimer(self)
+        self.live_timer.timeout.connect(self.live_tick)
+        self.live_timer.start(1500)
+        self._live_pending = False
         self.build_menu()
         self.statusBar().showMessage(f"Дані зберігаються в {paths.data_root()}")
         self.apply_theme()
@@ -693,24 +706,20 @@ class MainWindow(QMainWindow):
         tb.addWidget(self.pill)
         tb.addSeparator()
 
-        tb.addWidget(QLabel("λ:"))
         self.wl_spin = QSpinBox()
         self.wl_spin.setRange(WL_MIN, WL_MAX)
         self.wl_spin.setSuffix(" нм")
         self.wl_spin.setValue(int(self.settings.value("wavelength", 540)))
         self.wl_spin.setToolTip("Робоча довжина хвилі для фотометрії та кінетики")
         self.wl_spin.setKeyboardTracking(False)
-        tb.addWidget(self.wl_spin)
         self.b_go = QPushButton("Перейти")
         self.b_go.setToolTip("Встановити цю довжину хвилі на приладі")
         self.b_go.clicked.connect(self.go_wl)
-        tb.addWidget(self.b_go)
         self.b_blank = QPushButton("Бланк")
         self.b_blank.setObjectName("primary")
         self.b_blank.setToolTip("Поставте кювету з розчинником (бланком) і натисніть: прилад обнулиться "
                                 "на цій довжині хвилі")
         self.b_blank.clicked.connect(lambda: self.do_blank())
-        tb.addWidget(self.b_blank)
         self.state_lbl = QLabel("")
         self.state_lbl.setObjectName("mono")
         tb.addWidget(self.state_lbl)
@@ -768,6 +777,18 @@ class MainWindow(QMainWindow):
         a = QAction("Підключення…", self)
         a.triggered.connect(lambda: ConnectionDialog(self).exec())
         m.addAction(a)
+        a = QAction("Перейти на задану λ (GOTO λ)", self)
+        a.triggered.connect(self.go_wl)
+        m.addAction(a)
+        a = QAction("Нуль (ZERO)", self)
+        a.setShortcut(QKeySequence("Ctrl+0"))
+        a.triggered.connect(lambda: self.do_blank())
+        m.addAction(a)
+        a = QAction("Довжина хвилі… (SET)", self)
+        a.setShortcut(QKeySequence("Ctrl+L"))
+        a.triggered.connect(lambda: self.panel.set_wl())
+        m.addAction(a)
+        m.addSeparator()
         a = QAction("Термопринтер…", self)
         a.triggered.connect(self.printer_settings)
         m.addAction(a)
@@ -782,10 +803,24 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_dark)
 
         m = mb.addMenu("&Вигляд")
-        self.act_theme = QAction("Темна тема", self, checkable=True)
-        self.act_theme.setChecked(self.theme.name == "dark")
-        self.act_theme.toggled.connect(lambda on: self.set_theme("dark" if on else "light"))
-        m.addAction(self.act_theme)
+        tm = m.addMenu("Тема")
+        from PySide6.QtGui import QActionGroup
+        grp = QActionGroup(self)
+        for key, title in th.THEME_NAMES.items():
+            a = QAction(title, self, checkable=True)
+            a.setChecked(self.theme.name == key)
+            a.triggered.connect(lambda _=False, k=key: self.set_theme(k))
+            grp.addAction(a)
+            tm.addAction(a)
+        self.act_panel = QAction("Панель приладу", self, checkable=True)
+        self.act_panel.setChecked(str(self.settings.value("panel/show", True)).lower() in ("true", "1"))
+        self.act_panel.toggled.connect(lambda on: (self.panel.setVisible(on), self.settings.setValue("panel/show", on)))
+        self.panel.setVisible(self.act_panel.isChecked())
+        m.addAction(self.act_panel)
+        self.act_live = QAction("Живий показ A на екрані приладу", self, checkable=True)
+        self.act_live.setChecked(str(self.settings.value("panel/live", True)).lower() in ("true", "1"))
+        self.act_live.toggled.connect(lambda on: self.settings.setValue("panel/live", on))
+        m.addAction(self.act_live)
         self.act_sound = QAction("Звукові сигнали", self, checkable=True)
         self.act_sound.setChecked(self.notifier.sound_on)
         self.act_sound.toggled.connect(lambda on: self.settings.setValue("notify/sound", on))
@@ -985,6 +1020,9 @@ class MainWindow(QMainWindow):
         self.port.setEnabled(not on)
         if on:
             self.message(f"Підключено: {model}" + (" — демо-режим, усі дані вигадані" if self.demo else ""))
+        if hasattr(self, "panel"):
+            self.panel.reading = None
+            self.panel.set_model(self.model)
         self.update_pill()
         self.update_enabled()
 
@@ -1049,6 +1087,8 @@ class MainWindow(QMainWindow):
             self.busy_lbl.setText("")
             self.progress.setVisible(False)
         self.update_enabled()
+        if hasattr(self, "panel"):
+            self.panel.refresh()
 
     def on_state(self, st):
         if not st:
@@ -1058,7 +1098,40 @@ class MainWindow(QMainWindow):
         ref = st["blank"]
         b = f"бланк {ref.wavelength} нм" if ref and ref.wavelength == int(wl or 0) else "бланку немає"
         self._state_text = f"  прилад: {wl:.0f} нм · {b}"
+        if hasattr(self, "panel"):
+            self.panel.set_state(wl, ref.wavelength if ref else None)
         self.state_lbl.setText(f"{self._state_text} · кювета: {self.cuvette.short()}")
+
+    # ----- front panel keys and the live display
+    def print_current(self):
+        tab = self.tabs.currentWidget()
+        if hasattr(tab, "receipt"):
+            tab.receipt()
+        else:
+            self.photo.receipt()
+
+    def measure_key(self):
+        self.tabs.setCurrentWidget(self.photo)
+        self.photo.measure()
+
+    def live_tick(self):
+        """Like the real instrument: show A / %T at the current wavelength while nothing else runs."""
+        if (not self.connected or self.busy or self._live_pending or not self.act_live.isChecked()
+                or not self.worker.idle()):
+            return
+        self._live_pending = True
+
+        def task(dev, job):
+            ref = dev.blank_ref if dev else None
+            if ref is None or dev.wavelength is None or abs(ref.wavelength - dev.wavelength) > 0.01:
+                return None
+            return dev.read(ref, 3)
+
+        def done(r):
+            self._live_pending = False
+            if r is not None:
+                self.panel.set_reading(r.A, r.T, r.saturated)
+        self.worker.submit(task, done, quiet=True)
 
     def instrument_check(self):
         from .instrument_check import InstrumentCheckDialog
@@ -1071,6 +1144,7 @@ class MainWindow(QMainWindow):
     def edit_cuvette(self):
         if CuvetteDialog(self, self.cuvette).exec():
             self.state_lbl.setText(f"{getattr(self, '_state_text', '')} · кювета: {self.cuvette.short()}")
+            self.panel.refresh()
             self.message(f"Кювета: {self.cuvette.text()}")
 
     def update_enabled(self):
@@ -1084,6 +1158,8 @@ class MainWindow(QMainWindow):
             tab.set_enabled(ok)
         if hasattr(self, "proto"):
             self.proto.update_action()
+        if hasattr(self, "panel"):
+            self.panel.set_enabled(ok)
 
     def about(self):
         QMessageBox.about(self, "Про SpecRec",

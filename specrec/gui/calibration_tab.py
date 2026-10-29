@@ -76,7 +76,7 @@ class CalibrationTab(QWidget):
         row = QHBoxLayout()
         self.b_meas = QPushButton("Виміряти вибраний")
         self.b_meas.setObjectName("primary")
-        self.b_meas.setToolTip("Вимір на довжині хвилі з панелі вгорі проти бланку (кнопка «Бланк»); "
+        self.b_meas.setToolTip("Вимір на довжині хвилі з панелі вгорі проти бланку (клавіша ZERO на панелі приладу); "
                                "заповнює наступний вільний повтор")
         self.b_meas.clicked.connect(self.measure_std)
         row.addWidget(self.b_meas)
@@ -97,7 +97,7 @@ class CalibrationTab(QWidget):
         b.clicked.connect(self.load)
         row.addWidget(b)
         left.addLayout(row)
-        left.addWidget(hint("1. Бланк угорі на робочій λ.  2. Стандарти: виберіть рядок, поставте кювету, "
+        left.addWidget(hint("1. ZERO на панелі приладу на робочій λ.  2. Стандарти: виберіть рядок, поставте кювету, "
                             "«Виміряти вибраний» (або Пробіл).  3. Зразки — праворуч."))
         lw = QWidget()
         lw.setLayout(left)
@@ -230,7 +230,7 @@ class CalibrationTab(QWidget):
             dev.set_wavelength(wl)
             ref = dev.blank_ref
             if ref is None or ref.wavelength != wl:
-                raise InstrumentError(f"Немає бланку на {wl} нм. Поставте кювету з бланком і натисніть «Бланк».")
+                raise InstrumentError(f"Немає бланку на {wl} нм. Поставте кювету з бланком і натисніть ZERO на панелі приладу.")
             return dev.read(ref, n)
         self.win.run(task, on_done, label=f"Вимір на {wl} нм…")
 

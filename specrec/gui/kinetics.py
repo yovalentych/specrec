@@ -222,7 +222,7 @@ class KineticsTab(QWidget):
             sc = QShortcut(QKeySequence(key), self)
             sc.activated.connect(lambda: self.waiting_pos is not None and self.confirm())
 
-        ctl.addWidget(hint("Одна кювета: бланк угорі → зразок → «Старт».\n"
+        ctl.addWidget(hint("Одна кювета: бланк + ZERO → зразок → «Старт».\n"
                            "Каретка: позиція 1 — бланк, 2–4 — зразки; після сигналу пересуньте "
                            "каретку й натисніть Пробіл.\n"
                            "Виділена ділянка на графіку — ручний розрахунок швидкості."))
@@ -383,7 +383,7 @@ class KineticsTab(QWidget):
             ref = dev.blank_ref
             if ref is None or ref.wavelength != wl:
                 raise InstrumentError(f"Немає бланку на {wl} нм. Поставте кювету з бланком "
-                                      f"і натисніть «Бланк».")
+                                      f"і натисніть ZERO на панелі приладу.")
             if countdown > 0:
                 job.wait_gui(("countdown", countdown, prep))
                 if job.stopped:

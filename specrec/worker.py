@@ -80,8 +80,14 @@ class Worker(QThread):
             self.failed.emit(f"Внутрішня помилка програми: {type(e).__name__}: {e}\n"
                              "Дані вже збережено. Опис помилки записано в SpecRec_data/crash.log.")
 
-    def submit(self, fn, on_done=None, on_progress=None):
-        self._q.put((fn, on_done, on_progress))
+    def submit(self, fn, on_done=None, on_progress=None, quiet=False):
+        """quiet: a background job (live display) — no busy state, errors are ignored."""
+        self._q.put((fn, on_done, on_progress, quiet))
+
+    def idle(self) -> bool:
+        return self._q.empty() and not self._running
+
+    _running = False
 
     def request_stop(self):
         self.stop_requested = True
@@ -96,7 +102,16 @@ class Worker(QThread):
             item = self._q.get()
             if item is None:
                 break
-            fn, on_done, on_progress = item
+            fn, on_done, on_progress, quiet = item
+            self._running = True
+            if quiet:
+                try:
+                    res = fn(self.dev, Job(self, on_progress))
+                    self.finished_job.emit(on_done, res)
+                except Exception:
+                    pass
+                self._running = False
+                continue
             self.stop_requested = False
             self.busy_changed.emit(True)
             try:
@@ -113,6 +128,7 @@ class Worker(QThread):
                     self.state.emit({"wavelength": d.wavelength, "blank": d.blank_ref, "model": d.model})
                 else:
                     self.state.emit(None)
+                self._running = False
                 if self._q.empty():
                     self.busy_changed.emit(False)
         if self.dev is not None:
