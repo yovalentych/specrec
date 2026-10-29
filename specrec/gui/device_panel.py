@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
@@ -85,6 +85,90 @@ class Lcd(QWidget):
         p.setFont(f)
         p.setPen(QColor("#c9d6f5"))
         p.drawText(glass.adjusted(10, 0, -8, -6), Qt.AlignLeft | Qt.AlignBottom, status)
+        p.end()
+
+
+def wl_rgb(nm: float) -> QColor:
+    """Approximate colour of light (Bruton); outside 380–750 nm a neutral grey (UV / near IR)."""
+    if nm < 380 or nm > 750:
+        return QColor(120, 120, 135) if nm < 380 else QColor(105, 85, 85)
+    if nm < 440:
+        r, g, b = -(nm - 440) / 60, 0.0, 1.0
+    elif nm < 490:
+        r, g, b = 0.0, (nm - 440) / 50, 1.0
+    elif nm < 510:
+        r, g, b = 0.0, 1.0, -(nm - 510) / 20
+    elif nm < 580:
+        r, g, b = (nm - 510) / 70, 1.0, 0.0
+    elif nm < 645:
+        r, g, b = 1.0, -(nm - 645) / 65, 0.0
+    else:
+        r, g, b = 1.0, 0.0, 0.0
+    f = 0.3 + 0.7 * (nm - 380) / 40 if nm < 420 else (0.3 + 0.7 * (750 - nm) / 50 if nm > 700 else 1.0)
+    return QColor(int(255 * (r * f) ** 0.8), int(255 * (g * f) ** 0.8), int(255 * (b * f) ** 0.8))
+
+
+class SpectrumBar(QWidget):
+    """The working range of the instrument as a strip of colour; markers for the current and the
+    set wavelength; the part the cuvette does not transmit is shaded. Click = set λ."""
+    picked = Signal(int)
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumSize(280, 56)
+        self.setFixedHeight(56)
+        self.actual = None
+        self.target = 540
+        self.cutoff = WL_MIN
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(f"Робочий діапазон приладу: {WL_MIN}–{WL_MAX} нм. Клік — задати довжину хвилі.")
+
+    def set_values(self, actual, target, cutoff):
+        self.actual, self.target, self.cutoff = actual, target, cutoff
+        self.update()
+
+    def _x(self, nm):
+        return 14 + (nm - WL_MIN) / (WL_MAX - WL_MIN) * (self.width() - 28)
+
+    def _nm(self, x):
+        return round(WL_MIN + (x - 14) / (self.width() - 28) * (WL_MAX - WL_MIN))
+
+    def mousePressEvent(self, e):
+        self.picked.emit(max(WL_MIN, min(WL_MAX, self._nm(e.position().x()))))
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        top, h = 22, 14
+        for x in range(int(self._x(WL_MIN)), int(self._x(WL_MAX)) + 1):
+            p.setPen(wl_rgb(self._nm(x)))
+            p.drawLine(x, top, x, top + h)
+        if self.cutoff > WL_MIN:                       # what the cuvette does not transmit
+            p.fillRect(QRectF(self._x(WL_MIN), top, self._x(self.cutoff) - self._x(WL_MIN), h), QColor(0, 0, 0, 120))
+        p.setPen(QPen(QColor("#3e4f66"), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(QRectF(self._x(WL_MIN), top, self._x(WL_MAX) - self._x(WL_MIN), h))
+        f = QFont()
+        f.setPixelSize(10)
+        p.setFont(f)
+        for nm in (325, 400, 500, 600, 700, 800, 900, 1000):
+            x = self._x(nm)
+            p.drawLine(int(x), top + h, int(x), top + h + 3)
+            p.drawText(QRectF(x - 22, top + h + 3, 44, 12), Qt.AlignHCenter, str(nm))
+        p.drawText(QRectF(self._x(WL_MIN), 0, 60, 12), Qt.AlignLeft, "УФ")
+        p.drawText(QRectF(self._x(380), 0, self._x(750) - self._x(380), 12), Qt.AlignHCenter, "видиме світло")
+        p.drawText(QRectF(self._x(760), 0, self._x(WL_MAX) - self._x(760), 12), Qt.AlignRight, "ближній ІЧ")
+
+        def tri(nm, fill):
+            x = self._x(nm)
+            path = [QPointF(x, top + h - 2), QPointF(x - 6, top - 8), QPointF(x + 6, top - 8)]
+            p.setPen(QPen(QColor("#26313f"), 1.4))
+            p.setBrush(fill)
+            p.drawPolygon(path)
+        if self.target is not None:
+            tri(self.target, Qt.NoBrush)
+        if self.actual is not None:
+            tri(self.actual, QColor("#ffffff"))
         p.end()
 
 
@@ -159,16 +243,34 @@ class DevicePanel(QFrame):
         lid.setObjectName("deviceLid")
         ll = QVBoxLayout(lid)
         ll.setContentsMargins(14, 10, 14, 10)
-        t = QLabel("Кюветне відділення")
-        t.setObjectName("deviceSub")
+        row = QHBoxLayout()
+        lab = QLabel("λ:")
+        lab.setObjectName("deviceName")
+        lab.setStyleSheet("font-size: 22px;")
+        row.addWidget(lab)
+        spin = win.wl_spin                          # the one working wavelength of the program
+        spin.setObjectName("wlInput")
+        spin.setToolTip(f"Вписати довжину хвилі ({WL_MIN}–{WL_MAX} нм) і натиснути Enter — прилад перейде на неї")
+        spin.setFixedWidth(130)
+        spin.lineEdit().returnPressed.connect(win.go_wl)
+        row.addWidget(spin)
+        self.k_go2 = key("GOTO ⏎", "Перейти на цю довжину хвилі")
+        self.k_go2.clicked.connect(win.go_wl)
+        row.addWidget(self.k_go2)
+        row.addStretch()
+        rng = QLabel(f"робочий діапазон\n{WL_MIN}–{WL_MAX} нм")
+        rng.setObjectName("deviceSub")
+        rng.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(rng)
+        ll.addLayout(row)
+        self.bar = SpectrumBar()
+        self.bar.picked.connect(spin.setValue)
+        ll.addWidget(self.bar)
         self.cuv = QLabel("")
         self.cuv.setObjectName("deviceSub")
         self.cuv.setWordWrap(True)
-        ll.addWidget(t)
-        ll.addStretch()
         ll.addWidget(self.cuv)
-        lid.setMinimumWidth(200)
-        lid.setToolTip("Матеріал і шлях кювети: Прилад → Кювета…")
+        lid.setMinimumWidth(330)
         lay.addWidget(lid, 1)
 
         self.k_up.clicked.connect(lambda: self.step(+1))
@@ -195,7 +297,7 @@ class DevicePanel(QFrame):
             self.win.wl_spin.setValue(v)
 
     def set_enabled(self, ok: bool):
-        for k in (self.k_goto, self.k_zero, self.k_meas):
+        for k in (self.k_goto, self.k_zero, self.k_meas, self.k_go2):
             k.setEnabled(ok)
         self.k_stop.setEnabled(self.win.busy)
 
@@ -219,7 +321,10 @@ class DevicePanel(QFrame):
     def refresh(self):
         w = self.win
         if hasattr(w, "cuvette"):
-            self.cuv.setText(f"кювета: {w.cuvette.text()}")
+            cut = w.cuvette.cutoff
+            note = f" — нижче ~{cut} нм не пропускає (затінено)" if cut > WL_MIN else ""
+            self.cuv.setText(f"кювета: {w.cuvette.text()}{note}")
+            self.bar.set_values(self.actual if w.connected else None, w.wl_spin.value(), cut)
         target = w.wl_spin.value()
         if not w.connected:
             self.lcd.show(f"λ {target:5.1f} nm", "A  -.---", "T  ---.- %", "НЕ ПІДКЛЮЧЕНО")

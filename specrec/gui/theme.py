@@ -186,6 +186,8 @@ def stylesheet(t: Theme) -> str:
     QPushButton#devkey:disabled {{ color: #9aa3ae; }}
     QPushButton#devkey:hover {{ border-color: #4f6b8f; }}
     #devhint {{ color: #e9eef6; font-size: 10px; }}
+    QSpinBox#wlInput {{ font-size: 20px; font-weight: 600; padding: 4px 8px; background: #ffffff;
+                        border: 1px solid #9aa6b6; border-radius: 5px; color: #26313f; }}
     #deviceLid {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #f3f1eb, stop:1 #e2ded3);
                   border: 1px solid #c9c3b5; border-top: 2px solid #d8d3c6; border-radius: 4px; }}
     """
